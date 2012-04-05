@@ -14,6 +14,10 @@
 " Maintainer:	Ingo Karkat <ingo@karkat.de>
 "
 " REVISION	DATE		REMARKS
+"   1.01.006	05-Apr-2012	Place the cursor at the beginning of the
+"				transformed text, to be consistent with built-in
+"				transformation commands like gU, and because it
+"				makes much more sense.
 "   1.00.005	05-Apr-2012	Initial release.
 "	005	14-Mar-2012	Always set repetition, not just when the
 "				transformation succeeds, so that the repetition
@@ -141,9 +145,13 @@ function! s:Transform( count, algorithm, selectionModes, onError )
 		" replace the text.
 		call setpos('.', l:save_cursor)
 		silent execute 'normal "_d' . l:count . l:SelectionMode
-		silent normal! P
+		" The paste command leaves the cursor at the end of the pasted
+		" text, but the behavior of built-in transformations is to place
+		" the cursor at the beginning of the transformed text. The g`[
+		" does this for us.
+		silent normal! Pg`[
 	    else
-		silent normal! gvp
+		silent normal! gvpg`[
 	    endif
 
 	    let l:isSuccess = 1
