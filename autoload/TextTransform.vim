@@ -47,7 +47,7 @@
 "				make it delegate to the passed
 "				a:ProcessFunction, which is either
 "				s:TransformLinewise() or s:TransformWholeText().
-"	004	28-Mar-2011	ENH: Allow use of funcref for a:algorithm in
+"	004	28-Mar-2011	ENH: Allow use of Funcref for a:algorithm in
 "				order to support script-local transformation
 "				functions.
 "	003	25-Mar-2011	ENH: Use s:TransformExpression() instead of
