@@ -202,6 +202,8 @@ To uninstall, use the |:RmVimball| command.
 DEPENDENCIES					  *TextTransform-dependencies*
 
 - Requires Vim 7.0 or higher.
+- Requires the |ingo-library.vim| plugin (vimscript #4433), version 1.004 or
+  higher.
 - repeat.vim (vimscript #2136) plugin (optional)
 - visualrepeat.vim (vimscript #3848) plugin (optional)
 
@@ -219,6 +221,13 @@ IDEAS							 *TextTransform-ideas*
 
 ==============================================================================
 HISTORY						       *TextTransform-history*
+
+1.11	17-May-2013
+- Avoid changing the jumplist.
+- Add dependency to ingo-library (vimscript #4433).
+- FIX: When the selection mode is a text object, must still establish a visual
+  selection of the yanked text so that g:TextTransformContext contains valid
+  data for use by a:algorithm.
 
 1.10	19-Jan-2013
 - FIX: In a blockwise visual selection with $ to the end of the lines, only
@@ -253,7 +262,7 @@ Started development.
 
 ==============================================================================
 Copyright: (C) 2011-2013 Ingo Karkat
-The VIM LICENSE applies to this script; see |copyright|.
+The VIM LICENSE applies to this plugin; see |copyright|.
 
 Maintainer:	Ingo Karkat <ingo@karkat.de>
 ==============================================================================

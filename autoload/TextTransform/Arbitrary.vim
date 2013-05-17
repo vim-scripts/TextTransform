@@ -3,6 +3,7 @@
 " This module is responsible for the transformation triggered by mappings.
 "
 " DEPENDENCIES:
+"   - ingo/msg.vim autoload script
 "   - vimscript #2136 repeat.vim autoload script (optional)
 "   - visualrepeat.vim (vimscript #3848) autoload script (optional)
 "
@@ -14,6 +15,12 @@
 " Maintainer:	Ingo Karkat <ingo@karkat.de>
 "
 " REVISION	DATE		REMARKS
+"   1.11.011	17-May-2013	FIX: When the selection mode is a text object,
+"				must still establish a visual selection of the
+"				yanked text so that g:TextTransformContext
+"				contains valid data for use by a:algorithm.
+"				Use ingo-library for error messages.
+"   1.11.010	21-Mar-2013	Avoid changing the jumplist.
 "   1.10.009	18-Jan-2013	FIX: In a blockwise visual selection with $ to
 "				the end of the lines, only the square block from
 "				'< to '> is transformed. Need to yank the
@@ -71,10 +78,7 @@ function! s:Error( onError, errorText )
     if a:onError ==# 'beep'
 	execute "normal! \<C-\>\<C-n>\<Esc>"
     elseif a:onError ==# 'errmsg'
-	let v:errmsg = a:errorText
-	echohl ErrorMsg
-	echomsg v:errmsg
-	echohl None
+	call ingo#msg#ErrorMsg(a:errorText)
     endif
 endfunction
 function! s:ApplyAlgorithm( algorithm, text )
@@ -82,17 +86,9 @@ function! s:ApplyAlgorithm( algorithm, text )
     try
 	return call(a:algorithm, [a:text])
     catch /^Vim\%((\a\+)\)\=:E/
-	" v:exception contains what is normally in v:errmsg, but with extra
-	" exception source info prepended, which we cut away.
-	let v:errmsg = substitute(v:exception, '^Vim\%((\a\+)\)\=:', '', '')
-	echohl ErrorMsg
-	echomsg v:errmsg
-	echohl None
+	call ingo#msg#VimExceptionMsg()
     catch
-	let v:errmsg = 'TextTransform: ' . v:exception
-	echohl ErrorMsg
-	echomsg v:errmsg
-	echohl None
+	call ingo#msg#ErrorMsg('TextTransform: ' . v:exception)
     finally
 	unlet g:TextTransformContext
     endtry
@@ -122,14 +118,22 @@ function! s:Transform( count, algorithm, selectionModes, onError )
 	elseif l:SelectionMode =~# "^[vV\<C-v>]$"
 	    silent! normal! gvy
 	elseif l:SelectionMode ==# 'char'
-	    silent! execute 'normal! `[v`]'. (&selection ==# 'exclusive' ? 'l' : '') . 'y'
+	    silent! execute 'normal! g`[vg`]'. (&selection ==# 'exclusive' ? 'l' : '') . 'y'
 	elseif l:SelectionMode ==# 'line'
-	    silent! execute "normal! '[V']y"
+	    silent! execute "normal! g'[Vg']y"
 	elseif l:SelectionMode ==# 'block'
-	    silent! execute "normal! `[\<C-V>`]". (&selection ==# 'exclusive' ? 'l' : '') . 'y'
+	    silent! execute "normal! g`[\<C-V>g`]". (&selection ==# 'exclusive' ? 'l' : '') . 'y'
 	else
 	    let l:isTextObject = 1
 	    silent! execute 'normal y' . l:count . l:SelectionMode
+
+	    " Note: After (successfully) yanking the text object, still
+	    " establish a visual selection of the yanked text;
+	    " s:ApplyAlgorithm() uses the visual selection to establish the
+	    " g:TextTransformContext for use by a:algorithm.
+	    if ! empty(@")
+		silent! execute 'normal! g`[vg`]'. (&selection ==# 'exclusive' ? 'l' : '') . "\<Esc>"
+	    endif
 	endif
 "****D echomsg '****' string(l:SelectionMode) string(@")
 
