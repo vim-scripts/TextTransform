@@ -83,10 +83,37 @@ TextTransform#MakeMappings( {mapArgs}, {key}, {algorithm} [, {selectionModes}] )
 			buffer from where the text was retrieved, this
 			information is provided in g:TextTransformContext, a
 			dictionary with the following keys:
+			    "mapMode":	indicates what triggered the
+					transformation, one of
+					"n": normal mode mapping for line(s)
+					     e.g. <Leader>xyy
+					"o": operator pending mode mapping for
+					     moved-over text
+					     e.g. <Leader>xy{motion}
+					"v": visual mode mapping
+					     e.g. {Visual}<Leader>xy
+					"c": custom Ex command
 			    "mode": indicates the selection mode, one of "v",
 				    "V", or "^V" (like |visualmode()|)
 			    "startPos": the start position of the text
 			    "endPos"  : the end position of the text
+			    "arguments":List of optional passed command
+					arguments (when arguments have been
+					configured for a command; always empty
+					for mappings).
+			    "isAlgorithmRepeat":
+					Flag whether the same
+					|TextTransform-algorithm| is used
+					(either through another mapping /
+					command invocation, or via a mapping
+					repeat |.|) as the last time.
+			    "isRepeat": Flag whether the last used mapping
+					with the same algorithm has been
+					repeated via the |.| command. For
+					commands that process each line
+					individually, is 1 on subsequently
+					processed lines after the first line.
+
 			The function can |:throw| an exception to signal an
 			error. When the original text is returned,
 			TextTransform will print an error that nothing was
@@ -134,7 +161,9 @@ TextTransform#MakeCommand( {commandOptions}, {commandName}, {algorithm} [, {opti
 			|:command| attributes can be passed in
 			{commandOptions}. For example, pass "-range=%" to make
 			the command apply to the entire buffer when no range
-			is specified.
+			is specified. You can pass "-nargs=..." to pass
+			arguments to the algorithm (via
+			|g:TextTransformContext|.arguments).
 
 			{algorithm} is the name of a function or a |Funcref|,
 			cp. |Transform-algorithm|.
@@ -146,9 +175,10 @@ TextTransform#MakeCommand( {commandOptions}, {commandName}, {algorithm} [, {opti
 			from |TextTransform#MakeMappings()| do. Off by
 			default, so that each line is passed to {algorithm}
 			individually (without the newline). This allows for a
-			more efficient transformation. You need to enable this
-			if {algorithm} transforms the newline, adds or removes
-			lines.
+			more efficient transformation. For subsequent lines,
+			|g:TextTransformContext|.isRepeat is set to 1.
+			You need to enable this if {algorithm} transforms the
+			newline, adds or removes lines.
 
 					*TextTransform#MakeSelectionCommand()*
 TextTransform#MakeSelectionCommand( {commandOptions}, {commandName}, {algorithm}, {selectionModes} )
@@ -202,7 +232,7 @@ To uninstall, use the |:RmVimball| command.
 DEPENDENCIES					  *TextTransform-dependencies*
 
 - Requires Vim 7.0 or higher.
-- Requires the |ingo-library.vim| plugin (vimscript #4433), version 1.004 or
+- Requires the |ingo-library.vim| plugin (vimscript #4433), version 1.009 or
   higher.
 - repeat.vim (vimscript #2136) plugin (optional)
 - visualrepeat.vim (vimscript #3848) plugin (optional)
@@ -219,8 +249,33 @@ TODO							  *TextTransform-todo*
 
 IDEAS							 *TextTransform-ideas*
 
+- Provide a :[range]TextTransform {commandName1} [{commandName2} ...] with
+  custom completion of defined commands that applies all transformations to
+  the same [range]. Suggested by Zhao Cai.
+- Offer utility functions to split the text according to the used syntax
+  groups (through g:TextTransformContext and synID()), to simplify selective
+  application in algorithms. Suggested by Zhao Cai.
+
 ==============================================================================
 HISTORY						       *TextTransform-history*
+
+1.20	25-Sep-2013
+- Minor: Make substitute() robust against 'ignorecase'.
+- FIX: When the selection mode is a text object, and the text is at the end of
+  the line, the replacement is inserted one-off to the left.
+- Implement abort on error for generated commands.
+- Add g:TextTransformContext.mapMode context information so that
+  transformations can query from which source (line- or motion-mapping, or
+  custom command) they've been triggered.
+- Add g:TextTransformContext.isAlgorithmRepeat and
+  g:TextTransformContext.isRepeat context information (the latter through
+  additional <Plug>TextR... mappings) so that transformations that e.g. query
+  the user for something can skip the query and re-use the previously entered
+  value on a repeat of the mapping. It also allows commands that process the
+  lines individually to do different processing (or caching of expensive
+  values) for the first processed line.
+- Allow to pass command arguments, which are then accessible to the algorithm
+  through g:TextTransformContext.arguments.
 
 1.11	17-May-2013
 - Avoid changing the jumplist.

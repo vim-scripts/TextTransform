@@ -3,8 +3,9 @@
 " This module is responsible for the transformation triggered by mappings.
 "
 " DEPENDENCIES:
+"   - ingo/err.vim autoload script
 "   - ingo/msg.vim autoload script
-"   - vimscript #2136 repeat.vim autoload script (optional)
+"   - repeat.vim (vimscript #2136) autoload script (optional)
 "   - visualrepeat.vim (vimscript #3848) autoload script (optional)
 "
 " Copyright: (C) 2011-2013 Ingo Karkat
@@ -15,6 +16,26 @@
 " Maintainer:	Ingo Karkat <ingo@karkat.de>
 "
 " REVISION	DATE		REMARKS
+"   1.20.016	25-Sep-2013	Add g:TextTransformContext.arguments.
+"   1.20.015	16-Sep-2013	Add g:TextTransformContext.isAlgorithmRepeat.
+"				Add g:TextTransformContext.isRepeat. For that,
+"				we need to provide additional <Plug>TextR...
+"				repeat mappings installed into repeat.vim. For
+"				the operator mapping, its g@ is repeated by Vim
+"				itself, but not the
+"				TextTransform#Arbitrary#Expression() triggered
+"				by the mapping, so we clear the repeatTick there
+"				to be able to distinguish.
+"   1.20.014	24-Jul-2013	Add g:TextTransformContext.mapMode.
+"   1.12.013	26-Jun-2013	Use ingo/err.vim for commands; mappings use its
+"				infrastructure, but still :echomsg the error
+"				message (or beep).
+"   1.12.012	25-Jun-2013	FIX: When the selection mode is a text object,
+"				and the text is at the end of the line, the
+"				replacement is inserted one-off to the left.
+"				Temporarily :set virtualedit=onemore to ensure
+"				that the "P" paste is done at the right position
+"				in all cases.
 "   1.11.011	17-May-2013	FIX: When the selection mode is a text object,
 "				must still establish a visual selection of the
 "				yanked text so that g:TextTransformContext
@@ -73,27 +94,44 @@
 "				when running under :silent!.
 "	002	05-Apr-2011	Implement TextTransform#Arbitrary#Command().
 "	001	05-Apr-2011	file creation from autoload/TextTransform.vim.
+let s:save_cpo = &cpo
+set cpo&vim
 
+let s:repeatTick = -1
+let s:previousTransform = {'changedtick': -1, 'algorithm': ''}
 function! s:Error( onError, errorText )
     if a:onError ==# 'beep'
 	execute "normal! \<C-\>\<C-n>\<Esc>"
     elseif a:onError ==# 'errmsg'
-	call ingo#msg#ErrorMsg(a:errorText)
+	call ingo#err#Set(a:errorText)
     endif
 endfunction
-function! s:ApplyAlgorithm( algorithm, text )
-    let g:TextTransformContext = {'mode': visualmode(), 'startPos': getpos("'<"), 'endPos': getpos("'>")}
+function! s:ApplyAlgorithm( algorithm, text, mapMode, changedtick, arguments )
+    let l:isAlgorithmRepeat = (s:previousTransform.changedtick == a:changedtick &&
+    \   type(s:previousTransform.algorithm) == type(a:algorithm) && s:previousTransform.algorithm ==# a:algorithm
+    \)
+    let g:TextTransformContext = {
+    \   'mapMode': a:mapMode,
+    \   'mode': visualmode(),
+    \   'startPos': getpos("'<"),
+    \   'endPos': getpos("'>"),
+    \   'arguments': a:arguments,
+    \   'isAlgorithmRepeat': l:isAlgorithmRepeat,
+    \   'isRepeat': (l:isAlgorithmRepeat && s:repeatTick == a:changedtick)
+    \}
     try
-	return call(a:algorithm, [a:text])
+	return [1, call(a:algorithm, [a:text])]
     catch /^Vim\%((\a\+)\)\=:E/
-	call ingo#msg#VimExceptionMsg()
+	call ingo#err#SetVimException()
+	return [0, '']
     catch
-	call ingo#msg#ErrorMsg('TextTransform: ' . v:exception)
+	call ingo#err#Set('TextTransform: ' . v:exception)
+	return [0, '']
     finally
 	unlet g:TextTransformContext
     endtry
 endfunction
-function! s:Transform( count, algorithm, selectionModes, onError )
+function! s:Transform( count, algorithm, selectionModes, onError, mapMode, changedtick, arguments )
     let l:save_view = winsaveview()
     let l:save_cursor = getpos('.')
     let l:save_clipboard = &clipboard
@@ -104,6 +142,7 @@ function! s:Transform( count, algorithm, selectionModes, onError )
     let l:save_visualarea = [visualmode(), getpos("'<"), getpos("'>")]
     let l:isSuccess = 0
     let l:count = (a:count ? a:count : '')
+    call ingo#err#Clear()
 
     let l:selectionModes = type(a:selectionModes) == type([]) ? a:selectionModes : [a:selectionModes]
     for l:SelectionMode in l:selectionModes
@@ -151,9 +190,17 @@ function! s:Transform( count, algorithm, selectionModes, onError )
 	call s:Error(a:onError, 'Not applicable here')
     else
 	let l:yankMode = getregtype('"')
-	let l:transformedText = s:ApplyAlgorithm(a:algorithm, @")
-	if l:transformedText ==# @"
+	let [l:isSuccess, l:transformedText] = s:ApplyAlgorithm(a:algorithm, @", a:mapMode, a:changedtick, a:arguments)
+	if ! l:isSuccess
 	    call winrestview(l:save_view)
+	    if a:onError ==# 'beep'
+		" s:ApplyAlgorithm() has already submitted the error, but for
+		" mappings, we also want them to beep.
+		call s:Error(a:onError, '')
+	    endif
+	elseif l:transformedText ==# @"
+	    call winrestview(l:save_view)
+	    let l:isSuccess = 0
 	    call s:Error(a:onError, 'Nothing transformed')
 	else
 	    " When setting the register, also set the corresponding yank mode,
@@ -171,17 +218,26 @@ function! s:Transform( count, algorithm, selectionModes, onError )
 		" re-execute the text object (at the original position) to
 		" replace the text.
 		call setpos('.', l:save_cursor)
-		silent execute 'normal "_d' . l:count . l:SelectionMode
-		" The paste command leaves the cursor at the end of the pasted
-		" text, but the behavior of built-in transformations is to place
-		" the cursor at the beginning of the transformed text. The g`[
-		" does this for us.
-		silent normal! Pg`[
+		" When the text object works on text at the end of the line, the
+		" pasting with "P" is one off; "p" would need to be used. Since
+		" this situation is hard to detect, we don't want to apply the
+		" text object to a visual selection (a custom one may behave
+		" different there or even not be defined), and using "s$<Esc>"
+		" instead of "d" would clobber register "., we avoid this
+		" problematic behavior by temporarily changing 'virtualedit' to
+		" keep the cursor one past the end.
+		let l:save_virtualedit = &virtualedit
+		set virtualedit=onemore
+		    silent execute 'normal "_d' . l:count . l:SelectionMode
+		    " The paste command leaves the cursor at the end of the
+		    " pasted text, but the behavior of built-in transformations
+		    " is to place the cursor at the beginning of the transformed
+		    " text. The g`[ does this for us.
+		    silent normal! Pg`[
+		let &virtualedit = l:save_virtualedit
 	    else
 		silent normal! gvpg`[
 	    endif
-
-	    let l:isSuccess = 1
 	endif
     endif
 
@@ -201,6 +257,7 @@ function! TextTransform#Arbitrary#Expression( algorithm, repeatMapping )
     unlet! s:algorithm  " The algorithm can be a Funcref or String; avoid E706: Variable type mismatch.
     let s:algorithm = a:algorithm
     let s:repeatMapping = a:repeatMapping
+    let s:repeatTick = -1
     set opfunc=TextTransform#Arbitrary#Opfunc
 
     let l:keys = 'g@'
@@ -218,47 +275,81 @@ endfunction
 
 function! TextTransform#Arbitrary#Opfunc( selectionMode )
     let l:count = v:count1
-    call s:Transform(v:count, s:algorithm, a:selectionMode, 'beep')
+    if ! s:Transform(v:count, s:algorithm, a:selectionMode, 'beep', 'o', b:changedtick - (&l:readonly ? 1 : 0), []) " Need to subtract 1 from b:changedtick because of the no-op modification check (which here is conditional on 'readonly').
+	if ingo#err#IsSet()
+	    call ingo#msg#ErrorMsg(ingo#err#Get())
+	endif
+    endif
 
     " This mapping repeats naturally, because it just sets global things,
     " and Vim is able to repeat the g@ on its own.
     " But enable a repetition in visual mode through visualrepeat.vim.
     silent! call visualrepeat#set("\<Plug>" . s:repeatMapping . 'Visual', l:count)
+    " Store the change number and algorithm so that we can detect a repeat of
+    " the same substitution.
+    let s:previousTransform = {'changedtick': b:changedtick, 'algorithm': s:algorithm}
+    let s:repeatTick = b:changedtick
 endfunction
 
-function! TextTransform#Arbitrary#Line( algorithm, selectionModes, repeatMapping )
+function! TextTransform#Arbitrary#Line( algorithm, selectionModes, repeatMapping, isRepeat )
     let l:count = v:count1
-    call s:Transform(v:count, a:algorithm, a:selectionModes, 'beep')
+    if ! a:isRepeat | let s:repeatTick = -1 | endif
+    if ! s:Transform(v:count, a:algorithm, a:selectionModes, 'beep', 'n', b:changedtick - 1, [])    " Need to subtract 1 from b:changedtick because of the no-op modification check.
+	if ingo#err#IsSet()
+	    call ingo#msg#ErrorMsg(ingo#err#Get())
+	endif
+    endif
 
     " This mapping needs repeat.vim to be repeatable, because it contains of
     " multiple steps (visual selection, "gv" and "p" commands inside
     " s:Transform()).
-    silent! call repeat#set("\<Plug>" . a:repeatMapping . 'Line', l:count)
+    silent! call       repeat#set("\<Plug>" . a:repeatMapping . 'Line', l:count)
     " Also enable a repetition in visual mode through visualrepeat.vim.
     silent! call visualrepeat#set("\<Plug>" . a:repeatMapping . 'Visual', l:count)
+    " Store the change number and algorithm so that we can detect a repeat of
+    " the same substitution.
+    let s:previousTransform = {'changedtick': b:changedtick, 'algorithm': a:algorithm}
+    let s:repeatTick = b:changedtick
 endfunction
 
-function! TextTransform#Arbitrary#Visual( algorithm, repeatMapping )
+function! TextTransform#Arbitrary#Visual( algorithm, repeatMapping, isRepeat )
     let l:count = v:count1
-    call s:Transform(v:count, a:algorithm, visualmode(), 'beep')
+    if ! a:isRepeat | let s:repeatTick = -1 | endif
+    if ! s:Transform(v:count, a:algorithm, visualmode(), 'beep', 'v', b:changedtick - 1, [])    " Need to subtract 1 from b:changedtick because of the no-op modification check.
+	if ingo#err#IsSet()
+	    call ingo#msg#ErrorMsg(ingo#err#Get())
+	endif
+    endif
 
     " Make the visual mode mapping repeatable in normal mode, applying the
     " previous visual mode transformation at the current cursor position, using
     " the size of the last visual selection.
     " Note: We cannot pass the count here, the <SID>Reselect "1v" would swallow
     " that. But what would a count mean in this case, anyway?
-    silent! call repeat#set("\<Plug>" . a:repeatMapping . 'Visual', -1)
+    silent! call       repeat#set("\<Plug>" . a:repeatMapping . 'Visual', -1)
     " Also enable a repetition in visual mode through visualrepeat.vim.
     silent! call visualrepeat#set("\<Plug>" . a:repeatMapping . 'Visual', l:count)
+    " Store the change number and algorithm so that we can detect a repeat of
+    " the same substitution.
+    let s:previousTransform = {'changedtick': b:changedtick, 'algorithm': a:algorithm}
+    let s:repeatTick = b:changedtick
 endfunction
 
-function! TextTransform#Arbitrary#Command( firstLine, lastLine, count, algorithm, selectionModes )
+function! TextTransform#Arbitrary#Command( firstLine, lastLine, count, algorithm, selectionModes, ... )
     let l:selectionMode = a:selectionModes
     if a:firstLine == line("'<") && a:lastLine == line("'>")
 	let l:selectionMode = visualmode()
     endif
 
-    call s:Transform(a:count, a:algorithm, l:selectionMode, 'errmsg')
+    let l:status = s:Transform(a:count, a:algorithm, l:selectionMode, 'errmsg', 'c', b:changedtick - 1, a:000)    " Need to subtract 1 from b:changedtick because of the no-op modification check.
+
+    " Store the change number and algorithm so that we can detect a repeat of
+    " the same substitution.
+    let s:previousTransform = {'changedtick': b:changedtick, 'algorithm': a:algorithm}
+
+    return l:status
 endfunction
 
+let &cpo = s:save_cpo
+unlet s:save_cpo
 " vim: set ts=8 sts=4 sw=4 noexpandtab ff=unix fdm=syntax :

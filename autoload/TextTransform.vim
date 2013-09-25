@@ -3,8 +3,9 @@
 " DEPENDENCIES:
 "   - TextTransform#Arbitrary.vim autoload script
 "   - TextTransform#Lines.vim autoload script
+"   - ingo/err.vim autoload script
 "
-" Copyright: (C) 2011-2012 Ingo Karkat
+" Copyright: (C) 2011-2013 Ingo Karkat
 "   The VIM LICENSE applies to this script; see ':help copyright'.
 "   Idea, design and implementation based on unimpaired.vim (vimscript #1590)
 "   by Tim Pope.
@@ -12,6 +13,20 @@
 " Maintainer:	Ingo Karkat <ingo@karkat.de>
 "
 " REVISION	DATE		REMARKS
+"   1.20.015	25-Sep-2013	Allow to pass command arguments, which are then
+"				accessible to the algorithm through
+"				g:TextTransformContext.arguments.
+"   1.20.014	16-Sep-2013	Provide separate <Plug>TextR... repeat mappings
+"				to be able to distinguish between a mapping and
+"				its repeat via repeat.vim.
+"   1.12.013	26-Jun-2013	Also perform the no-op check for the generated
+"				commands. This avoids the attempted processing
+"				and gives a better error message than the
+"				current "E21: Cannot make changes, 'modifiable'
+"				is off: 10,10delete _"
+"				Abort commands in case of error.
+"   1.12.012	14-Jun-2013	Minor: Make substitute() robust against
+"				'ignorecase'.
 "   1.04.011	28-Dec-2012	Minor: Correct lnum for no-modifiable buffer
 "				check.
 "   1.00.010	05-Apr-2012	Initial release.
@@ -80,48 +95,54 @@ endfunction
 nnoremap <expr> <SID>Reselect '1v' . (visualmode() !=# 'V' && &selection ==# 'exclusive' ? ' ' : '')
 function! TextTransform#MakeMappings( mapArgs, key, algorithm, ... )
     " This will cause "E474: Invalid argument" if the mapping name gets too long.
-    let l:mappingName = 'TextT' . (
+    let l:algorithmMappingName = (
     \	type(a:algorithm) == type('') ?
     \	    a:algorithm :
-    \	    substitute(substitute(string(a:algorithm), '^function(''\(.*\)'')', '\1', ''), '<SNR>', '', 'g')
+    \	    substitute(substitute(string(a:algorithm), '^\Cfunction(''\(.*\)'')', '\1', ''), '\C<SNR>', '', 'g')
     \)
+    let l:mappingName = 'TextT' . l:algorithmMappingName
+    let l:repeatMappingName = 'TextR' . l:algorithmMappingName
     let l:plugMappingName = '<Plug>' . l:mappingName
 
     execute printf('nnoremap <silent> <expr> %s %sOperator TextTransform#Arbitrary#Expression(%s, %s)',
     \	a:mapArgs,
     \	l:plugMappingName,
     \	string(a:algorithm),
-    \	string(l:mappingName)
+    \	string(l:repeatMappingName)
     \)
 
-    let l:noopModificationCheck = 'call <SID>Before()<Bar>call setline(".", getline("."))<Bar>call <SID>After()<Bar>'
 
     " Repeat not defined in visual mode.
-    execute printf('vnoremap <silent> %s <SID>%sVisual :<C-u>%scall TextTransform#Arbitrary#Visual(%s, %s)<CR>',
-    \	a:mapArgs,
-    \	l:mappingName,
-    \	l:noopModificationCheck,
-    \	string(a:algorithm),
-    \	string(l:mappingName)
-    \)
-    execute printf('vnoremap <silent> <script> %sVisual <SID>%sVisual',
-    \	l:plugMappingName,
-    \	l:mappingName
-    \)
-    execute printf('nnoremap <silent> <script> %sVisual <SID>Reselect<SID>%sVisual',
-    \	l:plugMappingName,
-    \	l:mappingName
-    \)
+    let l:noopModificationCheck = 'call <SID>Before()<Bar>call setline(".", getline("."))<Bar>call <SID>After()<Bar>'
+    for [l:mappingName, l:isRepeat] in [[l:mappingName, 0], [l:repeatMappingName, 1]]
+	execute printf('vnoremap <silent> %s <SID>%sVisual :<C-u>%scall TextTransform#Arbitrary#Visual(%s, %s, %d)<CR>',
+	\   a:mapArgs,
+	\   l:mappingName,
+	\   l:noopModificationCheck,
+	\   string(a:algorithm),
+	\   string(l:repeatMappingName),
+	\   l:isRepeat
+	\)
+	execute printf('vnoremap <silent> <script> <Plug>%sVisual <SID>%sVisual',
+	\   l:mappingName,
+	\   l:mappingName
+	\)
+	execute printf('nnoremap <silent> <script> <Plug>%sVisual <SID>Reselect<SID>%sVisual',
+	\   l:mappingName,
+	\   l:mappingName
+	\)
 
-    let l:SelectionModes = (a:0 ? a:1 : 'lines')
-    execute printf('nnoremap <silent> %s %sLine :<C-u>%scall TextTransform#Arbitrary#Line(%s, %s, %s)<CR>',
-    \	a:mapArgs,
-    \	l:plugMappingName,
-    \	l:noopModificationCheck,
-    \	string(a:algorithm),
-    \	string(l:SelectionModes),
-    \	string(l:mappingName)
-    \)
+	let l:SelectionModes = (a:0 ? a:1 : 'lines')
+	execute printf('nnoremap <silent> %s <Plug>%sLine :<C-u>%scall TextTransform#Arbitrary#Line(%s, %s, %s, %d)<CR>',
+	\   a:mapArgs,
+	\   l:mappingName,
+	\   l:noopModificationCheck,
+	\   string(a:algorithm),
+	\   string(l:SelectionModes),
+	\   string(l:repeatMappingName),
+	\   l:isRepeat
+	\)
+    endfor
 
 
     if empty(a:key)
@@ -148,7 +169,7 @@ endfunction
 
 function! TextTransform#MakeCommand( commandOptions, commandName, algorithm, ... )
     let l:options = (a:0 ? a:1 : {})
-    execute printf('command! -bar %s %s %s call TextTransform#Lines#TransformCommand(<line1>, <line2>, %s, %s)',
+    execute printf('command! -bar %s %s %s call <SID>Before() | call setline(<line1>, getline(<line1>)) | call <SID>After() | if ! TextTransform#Lines#TransformCommand(<line1>, <line2>, %s, %s, <f-args>) | echoerr ingo#err#Get() | endif',
     \	a:commandOptions,
     \	(a:commandOptions =~# '\%(^\|\s\)-range\%(=\|\s\)' ? '' : '-range'),
     \	a:commandName,
@@ -159,7 +180,7 @@ endfunction
 
 
 function! TextTransform#MakeSelectionCommand( commandOptions, commandName, algorithm, selectionModes )
-    execute printf('command -bar -count %s %s call TextTransform#Arbitrary#Command(<line1>, <line2>, <count>, %s, %s)',
+    execute printf('command -bar -count %s %s call <SID>Before() | call setline(<line1>, getline(<line1>)) | call <SID>After() | if ! TextTransform#Arbitrary#Command(<line1>, <line2>, <count>, %s, %s, <f-args>) | echoerr ingo#err#Get() | endif',
     \	a:commandOptions,
     \	a:commandName,
     \	string(a:algorithm),
