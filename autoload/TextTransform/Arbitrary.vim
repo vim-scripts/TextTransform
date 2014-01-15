@@ -3,7 +3,9 @@
 " This module is responsible for the transformation triggered by mappings.
 "
 " DEPENDENCIES:
+"   - ingo/compat.vim autoload script
 "   - ingo/err.vim autoload script
+"   - ingo/list.vim autoload script
 "   - ingo/msg.vim autoload script
 "   - repeat.vim (vimscript #2136) autoload script (optional)
 "   - visualrepeat.vim (vimscript #3848) autoload script (optional)
@@ -16,6 +18,9 @@
 " Maintainer:	Ingo Karkat <ingo@karkat.de>
 "
 " REVISION	DATE		REMARKS
+"   1.21.018	20-Nov-2013	Need to use ingo#compat#setpos() to make a
+"				selection in Vim versions before 7.3.590.
+"   1.21.017	15-Oct-2013	Replace conditional with ingo#list#Make().
 "   1.20.016	25-Sep-2013	Add g:TextTransformContext.arguments.
 "   1.20.015	16-Sep-2013	Add g:TextTransformContext.isAlgorithmRepeat.
 "				Add g:TextTransformContext.isRepeat. For that,
@@ -144,8 +149,7 @@ function! s:Transform( count, algorithm, selectionModes, onError, mapMode, chang
     let l:count = (a:count ? a:count : '')
     call ingo#err#Clear()
 
-    let l:selectionModes = type(a:selectionModes) == type([]) ? a:selectionModes : [a:selectionModes]
-    for l:SelectionMode in l:selectionModes
+    for l:SelectionMode in ingo#list#Make(a:selectionModes)
 	let l:isTextObject = 0
 	if type(l:SelectionMode) == type(function('tr'))
 	    if call(l:SelectionMode, [])
@@ -244,8 +248,8 @@ function! s:Transform( count, algorithm, selectionModes, onError, mapMode, chang
     if visualmode() !=# l:save_visualarea[0]
 	execute 'normal!' l:save_visualarea[0] . "\<Esc>"
     endif
-    call setpos("'<", l:save_visualarea[1])
-    call setpos("'>", l:save_visualarea[2])
+    call ingo#compat#setpos("'<", l:save_visualarea[1])
+    call ingo#compat#setpos("'>", l:save_visualarea[2])
 
     call setreg('"', l:save_reg, l:save_regmode)
     let &clipboard = l:save_clipboard

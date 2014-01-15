@@ -5,7 +5,6 @@
 description			|TextTransform-description|
 usage				|TextTransform-usage|
 installation			|TextTransform-installation|
-integration			|TextTransform-integration|
 limitations			|TextTransform-limitations|
 known problems			|TextTransform-known-problems|
 todo				|TextTransform-todo|
@@ -232,13 +231,10 @@ To uninstall, use the |:RmVimball| command.
 DEPENDENCIES					  *TextTransform-dependencies*
 
 - Requires Vim 7.0 or higher.
-- Requires the |ingo-library.vim| plugin (vimscript #4433), version 1.009 or
+- Requires the |ingo-library.vim| plugin (vimscript #4433), version 1.015 or
   higher.
 - repeat.vim (vimscript #2136) plugin (optional)
 - visualrepeat.vim (vimscript #3848) plugin (optional)
-
-==============================================================================
-INTEGRATION					   *TextTransform-integration*
 
 ==============================================================================
 LIMITATIONS					   *TextTransform-limitations*
@@ -258,6 +254,12 @@ IDEAS							 *TextTransform-ideas*
 
 ==============================================================================
 HISTORY						       *TextTransform-history*
+
+1.21	15-Jan-2014
+- Minor: Use functions for newer ingo-library.
+- Need to use ingo#compat#setpos() to restore the selection in Vim versions
+  before 7.3.590.
+  *** You need to update to ingo-library (vimscript #4433) version 1.015! ***
 
 1.20	25-Sep-2013
 - Minor: Make substitute() robust against 'ignorecase'.
@@ -316,7 +318,7 @@ First published version.
 Started development.
 
 ==============================================================================
-Copyright: (C) 2011-2013 Ingo Karkat
+Copyright: (C) 2011-2014 Ingo Karkat
 The VIM LICENSE applies to this plugin; see |copyright|.
 
 Maintainer:	Ingo Karkat <ingo@karkat.de>
