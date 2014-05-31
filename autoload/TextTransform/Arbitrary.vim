@@ -7,10 +7,11 @@
 "   - ingo/err.vim autoload script
 "   - ingo/list.vim autoload script
 "   - ingo/msg.vim autoload script
+"   - ingo/selection/frompattern.vim autoload script
 "   - repeat.vim (vimscript #2136) autoload script (optional)
 "   - visualrepeat.vim (vimscript #3848) autoload script (optional)
 "
-" Copyright: (C) 2011-2013 Ingo Karkat
+" Copyright: (C) 2011-2014 Ingo Karkat
 "   The VIM LICENSE applies to this script; see ':help copyright'.
 "   Idea, design and implementation based on unimpaired.vim (vimscript #1590)
 "   by Tim Pope.
@@ -18,6 +19,10 @@
 " Maintainer:	Ingo Karkat <ingo@karkat.de>
 "
 " REVISION	DATE		REMARKS
+"   1.23.020	08-May-2014	ENH: Support selection mode "/{pattern}/", which
+"				selects the text region under / after the cursor
+"				that matches {pattern}.
+"   1.23.019	25-Mar-2014	Minor: Also handle :echoerr in the algorithm.
 "   1.21.018	20-Nov-2013	Need to use ingo#compat#setpos() to make a
 "				selection in Vim versions before 7.3.590.
 "   1.21.017	15-Oct-2013	Replace conditional with ingo#list#Make().
@@ -126,7 +131,7 @@ function! s:ApplyAlgorithm( algorithm, text, mapMode, changedtick, arguments )
     \}
     try
 	return [1, call(a:algorithm, [a:text])]
-    catch /^Vim\%((\a\+)\)\=:E/
+    catch /^Vim\%((\a\+)\)\=:/
 	call ingo#err#SetVimException()
 	return [0, '']
     catch
@@ -166,6 +171,11 @@ function! s:Transform( count, algorithm, selectionModes, onError, mapMode, chang
 	    silent! execute "normal! g'[Vg']y"
 	elseif l:SelectionMode ==# 'block'
 	    silent! execute "normal! g`[\<C-V>g`]". (&selection ==# 'exclusive' ? 'l' : '') . 'y'
+	elseif l:SelectionMode =~# '^/.*/$'
+	    if ! ingo#selection#frompattern#Select('v', l:SelectionMode[1:-2], line('.'))
+		continue
+	    endif
+	    silent! normal! gvy
 	else
 	    let l:isTextObject = 1
 	    silent! execute 'normal y' . l:count . l:SelectionMode
